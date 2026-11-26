@@ -1,0 +1,55 @@
+# Stage 5: one Kafka broker for development (KRaft, no ZooKeeper) and a web UI
+# Stage 7: Redpanda Console as a second UI. Stage 8: a healthcheck, so services can wait for the broker
+services:
+  kafka:
+    image: apache/kafka:4.4.0
+    container_name: kafka
+    working_dir: /opt/kafka/bin               # so "docker exec ... ./kafka-topics.sh" works from Git Bash
+    ports:
+      - "9092:9092"                           # for your PC: the CLI, and services started with java -jar
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller   # one process does both jobs (development only)
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT_HOST://:9092,PLAINTEXT://:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_HOST://localhost:9092,PLAINTEXT://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw        # any fixed id; a real cluster generates one
+      # Kafka's internal topics default to 3 copies, which needs 3 brokers. One broker: one copy.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0   # consumers join a group at once instead of after 3 s
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"    # topics are created on purpose, never by a typo
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs    # inside the container: "down" deletes the topics
+    healthcheck:                                  # Stage 8: "healthy" once the broker answers
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8090:8080"                           # 8080 is the gateway's
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092   # a container, so the container listener
+    depends_on:
+      - kafka
+
+  redpanda-console:                               # Stage 7: a second UI, next to Kafbat
+    image: docker.redpanda.com/redpandadata/console:v3.7.4
+    container_name: redpanda-console
+    ports:
+      - "8091:8080"                              # 8090 is Kafbat's
+    environment:
+      KAFKA_BROKERS: kafka:19092                 # a container, so the container listener
+    depends_on:
+      - kafka

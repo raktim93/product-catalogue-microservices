@@ -1,0 +1,23 @@
+# Stage 7: search-service's own Elasticsearch. One node, no security: development only.
+# Stage 8: part of whole-system.compose.yaml in product-catalogue (docker compose up -d elasticsearch)
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+    container_name: elasticsearch
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node            # no cluster to look for
+      - xpack.security.enabled=false          # plain http, no password (never in production)
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m        # a small heap for a 16 GB PC
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:                              # "healthy" once the cluster is at least yellow
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=2s' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  es-data:
+    name: search-service_es-data              # Stage 8: the name it got in Stage 7, so the index stays

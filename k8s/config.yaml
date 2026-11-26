@@ -1,0 +1,13 @@
+# CAT-74: settings every service reads as environment variables (envFrom). The same names as
+# whole-system.compose.yaml; the values are Kubernetes Service names. The password is in the Secret catalogue-db.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: product-catalogue-config
+  namespace: product-catalogue
+data:
+  CATALOGUE_URL: http://catalogue-service:8081    # CAT-76: the gateway's catalogue route and search's reload
+  SEARCH_URL: http://search-service:8082          # CAT-76: the gateway's search route
+  KAFKA_SERVERS: kafka:9092                       # one listener in Kubernetes (Compose has kafka:19092)
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  DB_URL: jdbc:postgresql://postgres:5432/catalogue

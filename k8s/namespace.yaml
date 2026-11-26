@@ -1,0 +1,5 @@
+# CAT-73: one namespace for the whole system. "kubectl delete namespace product-catalogue" removes all of it, data included.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: product-catalogue

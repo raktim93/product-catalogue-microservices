@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:                       # Spring Cloud 2025 prefix (was spring.cloud.gateway)
+          routes:
+            # CAT-64: search first. The gateway takes the first route that matches,
+            # and /api/v1/products/search also matches the catalogue route below.
+            - id: search
+              uri: "${SEARCH_URL:http://localhost:8082}"      # CAT-76: a plain URL from the environment
+              order: 0
+              predicates:
+                - Path=/api/v1/products/search # CAT-64: was /api/search/**
+            - id: catalogue
+              uri: "${CATALOGUE_URL:http://localhost:8081}"   # CAT-76: a plain URL from the environment
+              order: 1
+              predicates:
+                - Path=/api/v1/products/**     # CAT-64: was /api/products/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: catalogue                          # the breaker configured in CatalogueBreakerConfig (4.7)
+                    fallbackUri: forward:/fallback/catalogue # answered inside the gateway by FallbackController (4.7)
+          globalcors:
+            cors-configurations:
+              '[/api/**]':
+                allowed-origins: http://localhost:3000     # a future browser front end
+                allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+                allowed-headers: "*"
+                exposed-headers: Location,X-Request-Id     # headers browser code may read
+                max-age: 3600
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    gateway:
+      access: read-only
+    health:
+      show-details: always

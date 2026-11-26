@@ -1,0 +1,62 @@
+# CAT-74: search. Ready only after its startup reload (readiness includes productStore, CAT-67).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-service
+  namespace: product-catalogue
+spec:
+  replicas: 1                                 # CAT-75 scales to 2; up to 3 can share product-events' 3 partitions
+  selector:
+    matchLabels:
+      app: search-service
+  template:
+    metadata:
+      labels:
+        app: search-service
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: search-service
+          image: product-catalogue/search-service:stage-9
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: product-catalogue-config   # CATALOGUE_URL, ELASTICSEARCH_URL, KAFKA_SERVERS (the rest unused)
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:                      # the JVM only: Elasticsearch down is not a reason to restart search
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:                     # readinessState + productStore: 503 while the reload runs
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 768Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: search-service                        # SEARCH_URL: http://search-service:8082
+  namespace: product-catalogue
+spec:
+  selector:
+    app: search-service
+  ports:
+    - port: 8082
+      targetPort: 8082

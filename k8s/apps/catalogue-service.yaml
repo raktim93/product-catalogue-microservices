@@ -1,0 +1,74 @@
+# CAT-74: catalogue. Settings from the ConfigMap, the password from the Secret, probes from Spring Boot's actuator.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalogue-service
+  namespace: product-catalogue
+spec:
+  replicas: 1                                 # keep 1: two outbox publishers could send the same row twice
+  selector:
+    matchLabels:
+      app: catalogue-service
+  template:
+    metadata:
+      labels:
+        app: catalogue-service
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: catalogue-service
+          image: product-catalogue/catalogue-service:stage-9
+          imagePullPolicy: Never              # use the image Docker built in CAT-76; never look on Docker Hub
+          args:                               # added after the image's ENTRYPOINT, like Compose's command:
+            - --logging.level.org.hibernate.SQL=info
+            - --logging.level.org.hibernate.orm.jdbc.bind=info
+            - --logging.level.org.springframework.orm.jpa.JpaTransactionManager=info
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: product-catalogue-config   # every key becomes a variable: DB_URL, KAFKA_SERVERS, ...
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: postgres
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogue-db
+                  key: DB_PASSWORD
+          startupProbe:                       # until Spring has started; the other two probes wait for it
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            periodSeconds: 5
+            failureThreshold: 36              # up to 3 minutes
+          livenessProbe:                      # fails 3 times in a row: the container is restarted
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:                     # fails: the pod is taken out of the Service, not restarted
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 768Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalogue-service                     # CATALOGUE_URL: http://catalogue-service:8081
+  namespace: product-catalogue
+spec:
+  selector:
+    app: catalogue-service
+  ports:
+    - port: 8081
+      targetPort: 8081

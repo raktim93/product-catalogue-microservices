@@ -1,0 +1,74 @@
+# Stage 9: the whole system in Compose. COMPOSE_FILE in .env points Compose at this file, so from product-catalogue:
+#   ./mvnw clean package -DskipTests   build the three jars
+#   docker compose up -d --build       build the three images and start all eight containers
+#   docker compose build               build the three images only (Kubernetes runs them, CAT-74)
+name: product-catalogue
+
+include:
+  - catalogue-service/postgres.compose.yaml       # postgres
+  - kafka.compose.yaml                            # kafka, kafka-ui, redpanda-console
+  - search-service/elasticsearch.compose.yaml     # elasticsearch
+
+services:
+  catalogue-service:
+    build: catalogue-service                      # the folder with the Dockerfile (CAT-70)
+    image: product-catalogue/catalogue-service:stage-9
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      DB_URL: jdbc:postgresql://postgres:5432/catalogue   # the container's port, not 25432
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set - create .env as in CAT-69}
+      KAFKA_SERVERS: kafka:19092                           # Kafka's container listener
+    command:                                               # added after java -jar, like your extra flags
+      - --logging.level.org.hibernate.SQL=info
+      - --logging.level.org.hibernate.orm.jdbc.bind=info
+      - --logging.level.org.springframework.orm.jpa.JpaTransactionManager=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  search-service:
+    build: search-service
+    image: product-catalogue/search-service:stage-9
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_SERVERS: kafka:19092
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      CATALOGUE_URL: http://catalogue-service:8081         # CAT-76: the container name is the host name
+    depends_on:
+      kafka:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      catalogue-service:
+        condition: service_started                         # the reload retries until catalogue answers
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  api-gateway:
+    build: api-gateway
+    image: product-catalogue/api-gateway:stage-9
+    ports:
+      - "8080:8080"
+    environment:
+      CATALOGUE_URL: http://catalogue-service:8081         # CAT-76: the routes' targets, by container name
+      SEARCH_URL: http://search-service:8082
+    depends_on:
+      catalogue-service:
+        condition: service_started
+      search-service:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 512M

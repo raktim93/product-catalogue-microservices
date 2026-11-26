@@ -1,0 +1,72 @@
+# CAT-73: search's Elasticsearch. One node, no security: development only, as in Stage 7.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: product-catalogue
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        - name: fix-permissions               # Elasticsearch runs as uid 1000, group 0
+          image: busybox:1.37
+          command: ["sh", "-c", "chown -R 1000:0 /usr/share/elasticsearch/data"]
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+          ports:
+            - containerPort: 9200
+          env:
+            - name: discovery.type
+              value: single-node              # no cluster to look for
+            - name: xpack.security.enabled
+              value: "false"                  # plain http, no password (never in production)
+            - name: ES_JAVA_OPTS
+              value: -Xms512m -Xmx512m
+          readinessProbe:                     # Compose's healthcheck: Ready once the cluster is at least yellow
+            httpGet:
+              path: /_cluster/health?wait_for_status=yellow&timeout=2s
+              port: 9200
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 250m
+            limits:
+              memory: 1536Mi
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+  volumeClaimTemplates:                       # the PVC data-elasticsearch-0
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: product-catalogue
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+    - port: 9200
+      targetPort: 9200

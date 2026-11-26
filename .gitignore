@@ -1,0 +1,33 @@
+# Maven build output
+target/
+*.class
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Backup files
+*_bkp
+*.bak
+*.backup
+
+# Database dump
+catalogue-dump.sql
+
+# Log files
+*.log
+logs/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Archives
+*.zip

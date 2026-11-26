@@ -1,0 +1,66 @@
+# CAT-73: catalogue's PostgreSQL: one pod with its own disk (StatefulSet) and a fixed name (Service postgres:5432)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: product-catalogue
+spec:
+  serviceName: postgres                       # the Service below
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres                           # this StatefulSet owns the pods with this label
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      enableServiceLinks: false               # no *_SERVICE_HOST / *_PORT variables for every Service
+      containers:
+        - name: postgres
+          image: postgres:18.7
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: catalogue
+            - name: POSTGRES_USER
+              value: catalogue
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:                 # from the Secret, never written in this file
+                  name: catalogue-db
+                  key: DB_PASSWORD
+          readinessProbe:                     # Compose's healthcheck. Over TCP, so the first-start setup server doesn't count
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "catalogue", "-d", "catalogue"]
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql  # PostgreSQL 18+ images: mount here, not .../data
+  volumeClaimTemplates:                       # one disk per pod: the PVC data-postgres-0
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]        # mounted read-write by one node at a time
+        resources:
+          requests:
+            storage: 1Gi                      # Docker Desktop's hostpath storage doesn't enforce the size
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres                              # the host name catalogue uses: jdbc:postgresql://postgres:5432
+  namespace: product-catalogue
+spec:
+  selector:
+    app: postgres                             # sends traffic to the Ready pods with this label
+  ports:
+    - port: 5432
+      targetPort: 5432

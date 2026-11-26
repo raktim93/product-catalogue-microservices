@@ -1,0 +1,3 @@
+# Stage 8: send Docker only the built jar, not the sources, target/classes or IntelliJ's files
+*
+!target/*.jar
